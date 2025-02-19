@@ -1,9 +1,9 @@
 import express from "express";
-import AWS from "aws-sdk";
+import { DynamoDBClient, CreateTableCommand, PutItemCommand, ScanCommand, DeleteItemCommand } from "@aws-sdk/client-dynamodb";
 import cors from "cors";
 import dotenv from "dotenv";
 
-dotenv.config(); // Load AWS credentials from .env file
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -14,16 +14,42 @@ app.use(
     origin: "http://localhost:5173",
   })
 );
-app.use(express.json()); // Body parser for JSON
+app.use(express.json());
 
-const dynamoDB = new AWS.DynamoDB.DocumentClient({
+// AWS DynamoDB Client
+const dynamoDB = new DynamoDBClient({
   region: process.env.AWS_REGION,
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  },
 });
-const TABLE_NAME = "UserData";
 
-// POST Route to Insert Data into DynamoDB
+const TABLE_NAME = "UserDetails";
+
+// ✅ CREATE TABLE (AWS SDK v3)
+const createTable = async () => {
+  const params = {
+    TableName: TABLE_NAME,
+    KeySchema: [{ AttributeName: "email", KeyType: "HASH" }], // Partition Key
+    AttributeDefinitions: [{ AttributeName: "email", AttributeType: "S" }], // Only define key attributes
+    BillingMode: "PAY_PER_REQUEST",
+  };
+
+  try {
+    const command = new CreateTableCommand(params);
+    const data = await dynamoDB.send(command);
+    console.log("✅ Table created successfully:", data);
+  } catch (error) {
+    if (error.name === "ResourceInUseException") {
+      console.log("⚠️ Table already exists. Skipping creation.");
+    } else {
+      console.error("❌ Error creating table:", error);
+    }
+  }
+};
+
+// ✅ POST (Insert Data)
 app.post("/submit", async (req, res) => {
   try {
     const { firstName, lastName, email, password } = req.body.newUser;
@@ -31,47 +57,65 @@ app.post("/submit", async (req, res) => {
     const params = {
       TableName: TABLE_NAME,
       Item: {
-        email,
-        firstName,
-        lastName,
-        password,
+        email: { S: email }, // String type
+        firstName: { S: firstName },
+        lastName: { S: lastName },
+        password: { S: password },
       },
     };
 
-    await dynamoDB.put(params).promise();
-    res.status(201).json({ message: "Data saved successfully!" });
+    const command = new PutItemCommand(params);
+    await dynamoDB.send(command);
+    res.status(201).json({ message: "✅ Data saved successfully!" });
   } catch (error) {
-    console.error("Error:", error);
+    console.error("❌ Error:", error);
     res.status(500).json({ error: "Could not save data" });
   }
 });
+
+// ✅ GET ALL USERS
 app.get("/users", async (req, res) => {
   const params = {
     TableName: TABLE_NAME,
   };
 
   try {
-    const data = await dynamoDB.scan(params).promise();
-    res.json({ users: data });
+    const command = new ScanCommand(params);
+    const data = await dynamoDB.send(command);
+    const users = data.Items.map((item) => ({
+      email: item.email.S,
+      firstName: item.firstName.S,
+      lastName: item.lastName.S,
+      password: item.password.S,
+    }));
+    res.json({ users });
   } catch (error) {
-    res.status(500).json({ error: "Error fetching users", details: error });
+    console.error("❌ Error fetching users:", error);
+    res.status(500).json({ error: "Error fetching users" });
   }
 });
+
+// ✅ DELETE USER
 app.delete("/user/:email", async (req, res) => {
   const { email } = req.params;
 
   const params = {
     TableName: TABLE_NAME,
-    Key: { email },
+    Key: { email: { S: email } },
   };
 
   try {
-    await dynamoDB.delete(params).promise();
-    res.json({ message: `User with email ${email} deleted successfully.` });
+    const command = new DeleteItemCommand(params);
+    await dynamoDB.send(command);
+    res.json({ message: `✅ User with email ${email} deleted successfully.` });
   } catch (error) {
-    res.status(500).json({ error: "Error deleting user", details: error });
+    console.error("❌ Error deleting user:", error);
+    res.status(500).json({ error: "Error deleting user" });
   }
 });
 
 // Start Server
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  createTable();
+});
