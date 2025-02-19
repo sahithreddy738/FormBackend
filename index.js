@@ -9,27 +9,24 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-app.use(cors(
-    {
-        origin:"http://localhost:5173"
-    }
-));
+app.use(
+  cors({
+    origin: "http://localhost:5173",
+  })
+);
 app.use(express.json()); // Body parser for JSON
 
-
-
 const dynamoDB = new AWS.DynamoDB.DocumentClient({
-    region: process.env.AWS_REGION, // Change to your region
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  region: process.env.AWS_REGION,
+  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
 });
-const TABLE_NAME = "UserData"; // Change this to your table name
+const TABLE_NAME = "UserData";
 
 // POST Route to Insert Data into DynamoDB
 app.post("/submit", async (req, res) => {
   try {
-    console.log(req.body);
-    const { firstName,lastName, email, password } = req.body.newUser;
+    const { firstName, lastName, email, password } = req.body.newUser;
 
     const params = {
       TableName: TABLE_NAME,
@@ -46,6 +43,33 @@ app.post("/submit", async (req, res) => {
   } catch (error) {
     console.error("Error:", error);
     res.status(500).json({ error: "Could not save data" });
+  }
+});
+app.get("/users", async (req, res) => {
+  const params = {
+    TableName: TABLE_NAME,
+  };
+
+  try {
+    const data = await dynamoDB.scan(params).promise();
+    res.json({ users: data });
+  } catch (error) {
+    res.status(500).json({ error: "Error fetching users", details: error });
+  }
+});
+app.delete("/user/:email", async (req, res) => {
+  const { email } = req.params;
+
+  const params = {
+    TableName: TABLE_NAME,
+    Key: { email },
+  };
+
+  try {
+    await dynamoDB.delete(params).promise();
+    res.json({ message: `User with email ${email} deleted successfully.` });
+  } catch (error) {
+    res.status(500).json({ error: "Error deleting user", details: error });
   }
 });
 
