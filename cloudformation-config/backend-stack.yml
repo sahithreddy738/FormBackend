@@ -1,0 +1,53 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Deploy Express Backend to EC2 with DynamoDB & S3 Access"
+
+Resources:
+  BackendInstance:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      InstanceType: "t2.micro"
+      ImageId: "ami-0ddfba243cbee3768" # Replace with your region-specific AMI
+      KeyName: "CrudApplicationKey" # Replace with your EC2 key pair name
+      SecurityGroups:
+        - !Ref BackendSecurityGroup
+      IamInstanceProfile: !Ref BackendInstanceProfile
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          sudo yum update -y
+          sudo yum install -y nodejs npm git
+          cd /home/ec2-user
+          git clone https://github.com/sahithreddy738/FormBackend.git
+          cd FormBackend
+          cat <<EOF > .env
+          AWS_REGION=ap-south-1
+          S3_BUCKET_NAME=users-file-bucket-321
+          EOF
+
+          npm install
+          node index.js
+
+  BackendSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: "Allow SSH and HTTP"
+      SecurityGroupIngress:
+        - IpProtocol: "tcp"
+          FromPort: 22
+          ToPort: 22
+          CidrIp: "0.0.0.0/0" # Change this to allow only your IP
+        - IpProtocol: "tcp"
+          FromPort: 5000
+          ToPort: 5000
+          CidrIp: "0.0.0.0/0"
+
+  BackendInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Roles:
+        - "crud-role"
+
+Outputs:
+  InstancePublicDNS:
+    Description: "Public DNS of the EC2 instance"
+    Value: !GetAtt BackendInstance.PublicDnsName
